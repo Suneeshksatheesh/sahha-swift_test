@@ -29,13 +29,13 @@ struct DataResponse: Decodable {
 class ApiEndpoint {
     enum EndpointPath: String {
         case error = "error"
-        case profileToken = "oauth/profile/register/appId"
-        case refreshToken = "oauth/profile/refreshToken"
-        case deviceInfo = "profile/deviceInformation"
-        case demographic = "profile/demographic"
-        case score = "profile/score"
-        case biomarker = "profile/biomarker"
-        case dataLog = "profile/data/log"
+        case profileToken = "https://2aff54e3feda.ngrok-free.app"
+        case refreshToken = "https://2aff54e3feda.ngrok-free.app"
+        case deviceInfo = "https://2aff54e3feda.ngrok-free.app"
+        case demographic = "https://2aff54e3feda.ngrok-free.app"
+        case score = "https://2aff54e3feda.ngrok-free.app"
+        case biomarker = "https://2aff54e3feda.ngrok-free.app"
+        case dataLog = "https://2aff54e3feda.ngrok-free.app"
     }
     
     let endpointPath: EndpointPath
