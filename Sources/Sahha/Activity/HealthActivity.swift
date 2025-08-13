@@ -1200,259 +1200,484 @@ internal class HealthActivity {
         return sleepStage
     }
     
-    private func createSleepLogs(sensor: SahhaSensor, samples: [HKCategorySample], startDate: Date, endDate: Date) {
+    // private func createSleepLogs(sensor: SahhaSensor, samples: [HKCategorySample], startDate: Date, endDate: Date) {
         
-        Task {
+    //     Task {
             
-            var requests: [DataLogRequest] = []
-            for sample in samples {
+    //         var requests: [DataLogRequest] = []
+    //         for sample in samples {
                 
-                let sleepStage: SleepStage = Self.getSleepStage(sample: sample)
+    //             let sleepStage: SleepStage = Self.getSleepStage(sample: sample)
+    //             let difference = Calendar.current.dateComponents([.minute], from: sample.startDate, to: sample.endDate)
+    //             let value = Double(difference.minute ?? 0)
+                
+    //             let request = DataLogRequest(sample.uuid, sensor: .sleep, dataType: sleepStage.rawValue, value: value, source: sample.sourceRevision.source.bundleIdentifier, recordingMethod: getRecordingMethod(sample), deviceType: sample.sourceRevision.productType ?? "type_unknown", startDate: sample.startDate, endDate: sample.endDate)
+                
+    //             requests.append(request)
+    //         }
+            
+    //         getSleepStats(startDateTime: startDate, endDateTime: endDate, periodicity: .daily) { [weak self] error, stats in
+                
+    //             Task {
+                    
+    //                 for stat in stats {
+    //                     let request = DataLogRequest(stat: stat)
+    //                     requests.append(request)
+    //                 }
+                    
+    //                 self?.getSleepStats(startDateTime: startDate, endDateTime: endDate, periodicity: .hourly) { hourlyError, hourlyStats in
+                        
+    //                     Task {
+                            
+    //                         for stat in hourlyStats {
+    //                             let request = DataLogRequest(stat: stat)
+    //                             requests.append(request)
+    //                         }
+                            
+    //                         await Self.dataManager.addDataLogs(requests, sensor: sensor)
+    //                     }
+
+    //                 }
+    //             }
+                
+    //         }
+    //     }
+    // }
+
+        private func createSleepLogs(sensor: SahhaSensor, samples: [HKCategorySample], startDate: Date, endDate: Date) {
+        Task {
+            var requests: [DataLogRequest] = []
+
+            // 1. Collect from samples
+            let sampleRequests: [DataLogRequest] = samples.map { sample in
+                let sleepStage = Self.getSleepStage(sample: sample)
                 let difference = Calendar.current.dateComponents([.minute], from: sample.startDate, to: sample.endDate)
                 let value = Double(difference.minute ?? 0)
-                
-                let request = DataLogRequest(sample.uuid, sensor: .sleep, dataType: sleepStage.rawValue, value: value, source: sample.sourceRevision.source.bundleIdentifier, recordingMethod: getRecordingMethod(sample), deviceType: sample.sourceRevision.productType ?? "type_unknown", startDate: sample.startDate, endDate: sample.endDate)
-                
-                requests.append(request)
+                return DataLogRequest(
+                    sample.uuid,
+                    sensor: .sleep,
+                    dataType: sleepStage.rawValue,
+                    value: value,
+                    source: sample.sourceRevision.source.bundleIdentifier,
+                    recordingMethod: getRecordingMethod(sample),
+                    deviceType: sample.sourceRevision.productType ?? "type_unknown",
+                    startDate: sample.startDate,
+                    endDate: sample.endDate
+                )
             }
-            
-            getSleepStats(startDateTime: startDate, endDateTime: endDate, periodicity: .daily) { [weak self] error, stats in
-                
-                Task {
-                    
-                    for stat in stats {
-                        let request = DataLogRequest(stat: stat)
-                        requests.append(request)
-                    }
-                    
-                    self?.getSleepStats(startDateTime: startDate, endDateTime: endDate, periodicity: .hourly) { hourlyError, hourlyStats in
-                        
-                        Task {
-                            
-                            for stat in hourlyStats {
-                                let request = DataLogRequest(stat: stat)
-                                requests.append(request)
-                            }
-                            
-                            await Self.dataManager.addDataLogs(requests, sensor: sensor)
-                        }
+            requests.append(contentsOf: sampleRequests)
 
-                    }
+            // 2. Get daily stats
+            let dailyStats = await withCheckedContinuation { continuation in
+                getSleepStats(startDateTime: startDate, endDateTime: endDate, periodicity: .daily) { _, stats in
+                    continuation.resume(returning: stats)
                 }
-                
             }
+            let dailyRequests = dailyStats.map { DataLogRequest(stat: $0) }
+            requests.append(contentsOf: dailyRequests)
+
+            // 3. Get hourly stats
+            let hourlyStats = await withCheckedContinuation { continuation in
+                getSleepStats(startDateTime: startDate, endDateTime: endDate, periodicity: .hourly) { _, stats in
+                    continuation.resume(returning: stats)
+                }
+            }
+            let hourlyRequests = hourlyStats.map { DataLogRequest(stat: $0) }
+            requests.append(contentsOf: hourlyRequests)
+
+            // 4. Save all logs
+            await Self.dataManager.addDataLogs(requests, sensor: sensor)
         }
     }
+
     
-    private func createExerciseLogs(sensor: SahhaSensor, samples: [HKWorkout], startDate: Date, endDate: Date) {
+    // private func createExerciseLogs(sensor: SahhaSensor, samples: [HKWorkout], startDate: Date, endDate: Date) {
         
-        Task {
+    //     Task {
             
+    //         var requests: [DataLogRequest] = []
+    //         for sample in samples {
+    //             let sampleId = sample.uuid
+    //             let sampleType = sample.workoutActivityType.name
+    //             let source = sample.sourceRevision.source.bundleIdentifier
+    //             let recordingMethod = getRecordingMethod(sample)
+    //             let deviceType = sample.sourceRevision.productType ?? "type_unknown"
+                
+    //             // Add exercise session
+    //             var request = DataLogRequest(sampleId, sensor: .exercise, dataType: "exercise_session_" + sampleType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: sample.startDate, endDate: sample.endDate)
+                
+    //             var additionalProperties: [String: String] = [:]
+                
+    //             if let distance = sample.totalDistance {
+    //                 let value = distance.doubleValue(for: .meter())
+    //                 additionalProperties["total_distance"] = "\(value)"
+    //             }
+                
+    //             if let energy = sample.totalEnergyBurned {
+    //                 let value = energy.doubleValue(for: .largeCalorie())
+    //                 additionalProperties["total_energy_burned"] = "\(value)"
+    //             }
+                
+    //             if additionalProperties.isEmpty == false {
+    //                 request.additionalProperties = additionalProperties
+    //             }
+                
+    //             requests.append(request)
+                
+    //             // Add exercise events
+    //             if let workoutEvents = sample.workoutEvents {
+    //                 for workoutEvent in workoutEvents {
+    //                     let workoutEventType: String
+    //                     switch workoutEvent.type {
+    //                     case .pause:
+    //                         workoutEventType = "exercise_event_pause"
+    //                     case .resume:
+    //                         workoutEventType = "exercise_event_resume"
+    //                     case .lap:
+    //                         workoutEventType = "exercise_event_lap"
+    //                     case .marker:
+    //                         workoutEventType = "exercise_event_marker"
+    //                     case .motionPaused:
+    //                         workoutEventType = "exercise_event_motion_paused"
+    //                     case .motionResumed:
+    //                         workoutEventType = "exercise_event_motion_resumed"
+    //                     case .segment:
+    //                         workoutEventType = "exercise_event_segment"
+    //                     case .pauseOrResumeRequest:
+    //                         workoutEventType = "exercise_event_pause_or_resume_request"
+    //                     @unknown default:
+    //                         workoutEventType = "exercise_event_unknown"
+    //                     }
+    //                     let request = DataLogRequest(UUID(), sensor: .exercise, dataType: workoutEventType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: workoutEvent.dateInterval.start, endDate: workoutEvent.dateInterval.end, parentId: sampleId)
+    //                     requests.append(request)
+    //                 }
+    //             }
+                
+    //             // Add exercise segments
+    //             if #available(iOS 16.0, *) {
+    //                 for workoutActivity in sample.workoutActivities {
+    //                     let dataType = "exercise_segment_" + workoutActivity.workoutConfiguration.activityType.name
+    //                     let endDate: Date = workoutActivity.endDate ?? workoutActivity.startDate + workoutActivity.duration
+    //                     let request = DataLogRequest(UUID(), sensor: .exercise, dataType: dataType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: workoutActivity.startDate, endDate: endDate, parentId: sampleId)
+    //                     requests.append(request)
+    //                 }
+    //             }
+    //         }
+            
+    //         getExerciseStats(startDateTime: startDate, endDateTime: endDate) { error, stats in
+                
+    //             Task {
+    //                 for stat in stats {
+    //                     let request = DataLogRequest(stat: stat)
+    //                     requests.append(request)
+    //                 }
+                    
+    //                 await Self.dataManager.addDataLogs(requests, sensor: sensor)
+    //             }
+                
+    //         }
+            
+    //     }
+    // }
+        private func createExerciseLogs(sensor: SahhaSensor, samples: [HKWorkout], startDate: Date, endDate: Date) {
+        Task {
             var requests: [DataLogRequest] = []
+
             for sample in samples {
                 let sampleId = sample.uuid
                 let sampleType = sample.workoutActivityType.name
                 let source = sample.sourceRevision.source.bundleIdentifier
                 let recordingMethod = getRecordingMethod(sample)
                 let deviceType = sample.sourceRevision.productType ?? "type_unknown"
-                
-                // Add exercise session
+
                 var request = DataLogRequest(sampleId, sensor: .exercise, dataType: "exercise_session_" + sampleType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: sample.startDate, endDate: sample.endDate)
-                
+
                 var additionalProperties: [String: String] = [:]
-                
+
                 if let distance = sample.totalDistance {
                     let value = distance.doubleValue(for: .meter())
                     additionalProperties["total_distance"] = "\(value)"
                 }
-                
+
                 if let energy = sample.totalEnergyBurned {
                     let value = energy.doubleValue(for: .largeCalorie())
                     additionalProperties["total_energy_burned"] = "\(value)"
                 }
-                
-                if additionalProperties.isEmpty == false {
+
+                if !additionalProperties.isEmpty {
                     request.additionalProperties = additionalProperties
                 }
-                
+
                 requests.append(request)
-                
-                // Add exercise events
+
                 if let workoutEvents = sample.workoutEvents {
                     for workoutEvent in workoutEvents {
                         let workoutEventType: String
                         switch workoutEvent.type {
-                        case .pause:
-                            workoutEventType = "exercise_event_pause"
-                        case .resume:
-                            workoutEventType = "exercise_event_resume"
-                        case .lap:
-                            workoutEventType = "exercise_event_lap"
-                        case .marker:
-                            workoutEventType = "exercise_event_marker"
-                        case .motionPaused:
-                            workoutEventType = "exercise_event_motion_paused"
-                        case .motionResumed:
-                            workoutEventType = "exercise_event_motion_resumed"
-                        case .segment:
-                            workoutEventType = "exercise_event_segment"
-                        case .pauseOrResumeRequest:
-                            workoutEventType = "exercise_event_pause_or_resume_request"
-                        @unknown default:
-                            workoutEventType = "exercise_event_unknown"
+                            case .pause: workoutEventType = "exercise_event_pause"
+                            case .resume: workoutEventType = "exercise_event_resume"
+                            case .lap: workoutEventType = "exercise_event_lap"
+                            case .marker: workoutEventType = "exercise_event_marker"
+                            case .motionPaused: workoutEventType = "exercise_event_motion_paused"
+                            case .motionResumed: workoutEventType = "exercise_event_motion_resumed"
+                            case .segment: workoutEventType = "exercise_event_segment"
+                            case .pauseOrResumeRequest: workoutEventType = "exercise_event_pause_or_resume_request"
+                            @unknown default: workoutEventType = "exercise_event_unknown"
                         }
-                        let request = DataLogRequest(UUID(), sensor: .exercise, dataType: workoutEventType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: workoutEvent.dateInterval.start, endDate: workoutEvent.dateInterval.end, parentId: sampleId)
-                        requests.append(request)
+
+                        let eventRequest = DataLogRequest(UUID(), sensor: .exercise, dataType: workoutEventType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: workoutEvent.dateInterval.start, endDate: workoutEvent.dateInterval.end, parentId: sampleId)
+                        requests.append(eventRequest)
                     }
                 }
-                
-                // Add exercise segments
+
                 if #available(iOS 16.0, *) {
                     for workoutActivity in sample.workoutActivities {
                         let dataType = "exercise_segment_" + workoutActivity.workoutConfiguration.activityType.name
-                        let endDate: Date = workoutActivity.endDate ?? workoutActivity.startDate + workoutActivity.duration
-                        let request = DataLogRequest(UUID(), sensor: .exercise, dataType: dataType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: workoutActivity.startDate, endDate: endDate, parentId: sampleId)
-                        requests.append(request)
+                        let endDate = workoutActivity.endDate ?? workoutActivity.startDate + workoutActivity.duration
+                        let segmentRequest = DataLogRequest(UUID(), sensor: .exercise, dataType: dataType, value: 1, source: source, recordingMethod: recordingMethod, deviceType: deviceType, startDate: workoutActivity.startDate, endDate: endDate, parentId: sampleId)
+                        requests.append(segmentRequest)
                     }
                 }
             }
-            
-            getExerciseStats(startDateTime: startDate, endDateTime: endDate) { error, stats in
-                
-                Task {
-                    for stat in stats {
-                        let request = DataLogRequest(stat: stat)
-                        requests.append(request)
-                    }
-                    
-                    await Self.dataManager.addDataLogs(requests, sensor: sensor)
+
+            // ✅ Safely get stats and append to requests in the same Task scope
+            let stats = await withCheckedContinuation { continuation in
+                getExerciseStats(startDateTime: startDate, endDateTime: endDate) { _, stats in
+                    continuation.resume(returning: stats)
                 }
-                
             }
-            
+
+            for stat in stats {
+                let statRequest = DataLogRequest(stat: stat)
+                requests.append(statRequest)
+            }
+
+            await Self.dataManager.addDataLogs(requests, sensor: sensor)
         }
     }
-    
-    private func createHealthLogs(sensor: SahhaSensor, samples: [HKQuantitySample], startDate: Date, endDate: Date) {
+
+    // private func createHealthLogs(sensor: SahhaSensor, samples: [HKQuantitySample], startDate: Date, endDate: Date) {
         
-        Task {
+    //     Task {
             
-            var requests: [DataLogRequest] = []
-            for sample in samples {
+    //         var requests: [DataLogRequest] = []
+    //         for sample in samples {
                 
-                let value: Double
-                if let unit = sensor.unit {
-                    value = sample.quantity.doubleValue(for: unit)
-                } else {
-                    value = 0
-                }
+    //             let value: Double
+    //             if let unit = sensor.unit {
+    //                 value = sample.quantity.doubleValue(for: unit)
+    //             } else {
+    //                 value = 0
+    //             }
                 
-                var request = DataLogRequest(sample.uuid, sensor: sensor, value: value, source: sample.sourceRevision.source.bundleIdentifier, recordingMethod: getRecordingMethod(sample), deviceType: sample.sourceRevision.productType ?? "type_unknown", startDate: sample.startDate, endDate: sample.endDate)
+    //             var request = DataLogRequest(sample.uuid, sensor: sensor, value: value, source: sample.sourceRevision.source.bundleIdentifier, recordingMethod: getRecordingMethod(sample), deviceType: sample.sourceRevision.productType ?? "type_unknown", startDate: sample.startDate, endDate: sample.endDate)
                 
-                var additionalProperties: [String: String] = [:]
+    //             var additionalProperties: [String: String] = [:]
                 
-                if let metaValue = sample.metadata?[HKMetadataKeyHeartRateSensorLocation] as? NSNumber, let metaEnumValue = HKHeartRateSensorLocation(rawValue: metaValue.intValue) {
-                    let stringValue: String
-                    switch metaEnumValue {
-                    case .chest:
-                        stringValue = "chest"
-                    case .earLobe:
-                        stringValue = "ear_lobe"
-                    case .finger:
-                        stringValue = "finger"
-                    case .foot:
-                        stringValue = "foot"
-                    case .hand:
-                        stringValue = "hand"
-                    case .wrist:
-                        stringValue = "wrist"
-                    case .other:
-                        stringValue = "other"
-                    @unknown default:
-                        stringValue = "unknown"
-                    }
-                    additionalProperties = [DataLogPropertyIdentifier.measurementLocation.rawValue: stringValue]
-                }
+    //             if let metaValue = sample.metadata?[HKMetadataKeyHeartRateSensorLocation] as? NSNumber, let metaEnumValue = HKHeartRateSensorLocation(rawValue: metaValue.intValue) {
+    //                 let stringValue: String
+    //                 switch metaEnumValue {
+    //                 case .chest:
+    //                     stringValue = "chest"
+    //                 case .earLobe:
+    //                     stringValue = "ear_lobe"
+    //                 case .finger:
+    //                     stringValue = "finger"
+    //                 case .foot:
+    //                     stringValue = "foot"
+    //                 case .hand:
+    //                     stringValue = "hand"
+    //                 case .wrist:
+    //                     stringValue = "wrist"
+    //                 case .other:
+    //                     stringValue = "other"
+    //                 @unknown default:
+    //                     stringValue = "unknown"
+    //                 }
+    //                 additionalProperties = [DataLogPropertyIdentifier.measurementLocation.rawValue: stringValue]
+    //             }
                 
-                if let metaValue = sample.metadata?[HKMetadataKeyVO2MaxTestType] as? NSNumber, let metaEnumValue = HKVO2MaxTestType(rawValue: metaValue.intValue) {
-                    let stringValue: String
-                    switch metaEnumValue {
-                    case .maxExercise:
-                        stringValue = "max_exercise"
-                    case .predictionNonExercise:
-                        stringValue = "prediction_non_exercise"
-                    case .predictionSubMaxExercise:
-                        stringValue = "prediction_sub_max_exercise"
-                    @unknown default:
-                        stringValue = "unknown"
-                    }
-                    additionalProperties = [DataLogPropertyIdentifier.measurementMethod.rawValue: stringValue]
-                }
+    //             if let metaValue = sample.metadata?[HKMetadataKeyVO2MaxTestType] as? NSNumber, let metaEnumValue = HKVO2MaxTestType(rawValue: metaValue.intValue) {
+    //                 let stringValue: String
+    //                 switch metaEnumValue {
+    //                 case .maxExercise:
+    //                     stringValue = "max_exercise"
+    //                 case .predictionNonExercise:
+    //                     stringValue = "prediction_non_exercise"
+    //                 case .predictionSubMaxExercise:
+    //                     stringValue = "prediction_sub_max_exercise"
+    //                 @unknown default:
+    //                     stringValue = "unknown"
+    //                 }
+    //                 additionalProperties = [DataLogPropertyIdentifier.measurementMethod.rawValue: stringValue]
+    //             }
                 
-                if let metaValue = sample.metadata?[HKMetadataKeyHeartRateMotionContext] as? NSNumber, let metaEnumValue = HKHeartRateMotionContext(rawValue: metaValue.intValue) {
-                    let stringValue: String
-                    switch metaEnumValue {
-                    case .notSet:
-                        stringValue = "not_set"
-                    case .sedentary:
-                        stringValue = "sedentary"
-                    case .active:
-                        stringValue = "active"
-                    @unknown default:
-                        stringValue = "unknown"
-                    }
-                    additionalProperties = [DataLogPropertyIdentifier.motionContext.rawValue: stringValue]
-                }
+    //             if let metaValue = sample.metadata?[HKMetadataKeyHeartRateMotionContext] as? NSNumber, let metaEnumValue = HKHeartRateMotionContext(rawValue: metaValue.intValue) {
+    //                 let stringValue: String
+    //                 switch metaEnumValue {
+    //                 case .notSet:
+    //                     stringValue = "not_set"
+    //                 case .sedentary:
+    //                     stringValue = "sedentary"
+    //                 case .active:
+    //                     stringValue = "active"
+    //                 @unknown default:
+    //                     stringValue = "unknown"
+    //                 }
+    //                 additionalProperties = [DataLogPropertyIdentifier.motionContext.rawValue: stringValue]
+    //             }
                 
-                if let metaValue = sample.metadata?[HKMetadataKeyBloodGlucoseMealTime] as? NSNumber, let metaEnumValue = HKBloodGlucoseMealTime(rawValue: metaValue.intValue) {
-                    let relationToMeal: BloodRelationToMeal
-                    switch metaEnumValue {
-                    case .preprandial:
-                        relationToMeal = .before_meal
-                    case .postprandial:
-                        relationToMeal = .after_meal
-                    default:
-                        relationToMeal = .unknown
-                    }
-                    additionalProperties = [DataLogPropertyIdentifier.relationToMeal.rawValue: relationToMeal.rawValue]
-                }
+    //             if let metaValue = sample.metadata?[HKMetadataKeyBloodGlucoseMealTime] as? NSNumber, let metaEnumValue = HKBloodGlucoseMealTime(rawValue: metaValue.intValue) {
+    //                 let relationToMeal: BloodRelationToMeal
+    //                 switch metaEnumValue {
+    //                 case .preprandial:
+    //                     relationToMeal = .before_meal
+    //                 case .postprandial:
+    //                     relationToMeal = .after_meal
+    //                 default:
+    //                     relationToMeal = .unknown
+    //                 }
+    //                 additionalProperties = [DataLogPropertyIdentifier.relationToMeal.rawValue: relationToMeal.rawValue]
+    //             }
                 
-                if additionalProperties.isEmpty == false {
-                    request.additionalProperties = additionalProperties
-                }
+    //             if additionalProperties.isEmpty == false {
+    //                 request.additionalProperties = additionalProperties
+    //             }
                 
-                requests.append(request)
-            }
+    //             requests.append(request)
+    //         }
             
-            getQuantityStats(sensor: sensor, startDateTime: startDate, endDateTime: endDate, periodicity: .daily) { [weak self] error, stats in
+    //         getQuantityStats(sensor: sensor, startDateTime: startDate, endDateTime: endDate, periodicity: .daily) { [weak self] error, stats in
                 
-                Task {
-                    for stat in stats {
-                        let request = DataLogRequest(stat: stat)
-                        requests.append(request)
-                    }
+    //             Task {
+    //                 for stat in stats {
+    //                     let request = DataLogRequest(stat: stat)
+    //                     requests.append(request)
+    //                 }
                     
-                    switch sensor {
-                    case .steps, .heart_rate, .respiratory_rate, .oxygen_saturation, .basal_body_temperature:
-                        self?.getQuantityStats(sensor: sensor, startDateTime: startDate, endDateTime: endDate, periodicity: .hourly) { hourlyError, hourlyStats in
+    //                 switch sensor {
+    //                 case .steps, .heart_rate, .respiratory_rate, .oxygen_saturation, .basal_body_temperature:
+    //                     self?.getQuantityStats(sensor: sensor, startDateTime: startDate, endDateTime: endDate, periodicity: .hourly) { hourlyError, hourlyStats in
                             
-                            Task {
-                                for stat in hourlyStats {
-                                    let request = DataLogRequest(stat: stat)
-                                    requests.append(request)
-                                }
+    //                         Task {
+    //                             for stat in hourlyStats {
+    //                                 let request = DataLogRequest(stat: stat)
+    //                                 requests.append(request)
+    //                             }
                                 
-                                await Self.dataManager.addDataLogs(requests, sensor: sensor)
-                            }
-                        }
-                    default:
-                        await Self.dataManager.addDataLogs(requests, sensor: sensor)
-                    }
-                }
+    //                             await Self.dataManager.addDataLogs(requests, sensor: sensor)
+    //                         }
+    //                     }
+    //                 default:
+    //                     await Self.dataManager.addDataLogs(requests, sensor: sensor)
+    //                 }
+    //             }
                 
-            }
+    //         }
             
+    //     }
+    // }
+    private func createHealthLogs(sensor: SahhaSensor, samples: [HKQuantitySample], startDate: Date, endDate: Date) {
+    Task {
+        var allRequests: [DataLogRequest] = []
+
+        // Step 1: Process samples synchronously
+        let sampleRequests: [DataLogRequest] = samples.map { sample in
+            let value = sensor.unit.map { sample.quantity.doubleValue(for: $0) } ?? 0
+            var request = DataLogRequest(
+                sample.uuid,
+                sensor: sensor,
+                value: value,
+                source: sample.sourceRevision.source.bundleIdentifier,
+                recordingMethod: getRecordingMethod(sample),
+                deviceType: sample.sourceRevision.productType ?? "type_unknown",
+                startDate: sample.startDate,
+                endDate: sample.endDate
+            )
+
+            var additionalProperties: [String: String] = [:]
+
+            if let metaValue = sample.metadata?[HKMetadataKeyHeartRateSensorLocation] as? NSNumber,
+               let metaEnumValue = HKHeartRateSensorLocation(rawValue: metaValue.intValue) {
+                additionalProperties[DataLogPropertyIdentifier.measurementLocation.rawValue] = {
+                    switch metaEnumValue {
+                    case .chest: return "chest"
+                    case .earLobe: return "ear_lobe"
+                    case .finger: return "finger"
+                    case .foot: return "foot"
+                    case .hand: return "hand"
+                    case .wrist: return "wrist"
+                    case .other: return "other"
+                    @unknown default: return "unknown"
+                    }
+                }()
+            }
+
+            if let metaValue = sample.metadata?[HKMetadataKeyVO2MaxTestType] as? NSNumber,
+               let metaEnumValue = HKVO2MaxTestType(rawValue: metaValue.intValue) {
+                additionalProperties[DataLogPropertyIdentifier.measurementMethod.rawValue] = {
+                    switch metaEnumValue {
+                    case .maxExercise: return "max_exercise"
+                    case .predictionNonExercise: return "prediction_non_exercise"
+                    case .predictionSubMaxExercise: return "prediction_sub_max_exercise"
+                    @unknown default: return "unknown"
+                    }
+                }()
+            }
+
+            if let metaValue = sample.metadata?[HKMetadataKeyHeartRateMotionContext] as? NSNumber,
+               let metaEnumValue = HKHeartRateMotionContext(rawValue: metaValue.intValue) {
+                additionalProperties[DataLogPropertyIdentifier.motionContext.rawValue] = {
+                    switch metaEnumValue {
+                    case .notSet: return "not_set"
+                    case .sedentary: return "sedentary"
+                    case .active: return "active"
+                    @unknown default: return "unknown"
+                    }
+                }()
+            }
+
+            if let metaValue = sample.metadata?[HKMetadataKeyBloodGlucoseMealTime] as? NSNumber,
+               let metaEnumValue = HKBloodGlucoseMealTime(rawValue: metaValue.intValue) {
+                let relationToMeal: BloodRelationToMeal = {
+                    switch metaEnumValue {
+                    case .preprandial: return .before_meal
+                    case .postprandial: return .after_meal
+                    default: return .unknown
+                    }
+                }()
+                additionalProperties[DataLogPropertyIdentifier.relationToMeal.rawValue] = relationToMeal.rawValue
+            }
+
+            if !additionalProperties.isEmpty {
+                request.additionalProperties = additionalProperties
+            }
+
+            return request
         }
+
+        allRequests.append(contentsOf: sampleRequests)
+
+        // Step 2: Get daily stats
+        let dailyStats = await withCheckedContinuation { continuation in
+            getQuantityStats(sensor: sensor, startDateTime: startDate, endDateTime: endDate, periodicity: .daily) { _, stats in
+                continuation.resume(returning: stats)
+            }
+        }
+        allRequests.append(contentsOf: dailyStats.map { DataLogRequest(stat: $0) })
+
+        // Step 3: If needed, get hourly stats
+        if [.steps, .heart_rate, .respiratory_rate, .oxygen_saturation, .basal_body_temperature].contains(sensor) {
+            let hourlyStats = await withCheckedContinuation { continuation in
+                getQuantityStats(sensor: sensor, startDateTime: startDate, endDateTime: endDate, periodicity: .hourly) { _, stats in
+                    continuation.resume(returning: stats)
+                }
+            }
+            allRequests.append(contentsOf: hourlyStats.map { DataLogRequest(stat: $0) })
+        }
+
+        // Step 4: Save all requests
+        await Self.dataManager.addDataLogs(allRequests, sensor: sensor)
     }
-    
+}
 }
